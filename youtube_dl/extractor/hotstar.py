@@ -7,12 +7,11 @@ import re
 import time
 import uuid
 import json
-import random
 
 from .common import InfoExtractor
 from ..compat import (
     compat_HTTPError,
-    compat_str
+    compat_str,
 )
 from ..utils import (
     determine_ext,
@@ -32,30 +31,14 @@ class HotStarBaseIE(InfoExtractor):
         exp = st + 6000
         auth = 'st=%d~exp=%d~acl=/*' % (st, exp)
         auth += '~hmac=' + hmac.new(self._AKAMAI_ENCRYPTION_KEY, auth.encode(), hashlib.sha256).hexdigest()
-
-        def _generate_device_id():
-            """
-            Reversed from javascript library.
-            JS function is generateUUID
-            """
-            t = int(round(time.time() * 1000))
-            e = "xxxxxxxx-xxxx-4xxx-xxxx-xxxxxxxxxxxx"  # 4 seems to be interchangeable
-
-            def _replacer():
-                n = int((t + 16 * random.random())) % 16 | 0
-                return hex(n if "x" == e else 3 & n | 8)[2:]
-            return "".join([_.replace('x', _replacer()) for _ in e])
-
         token = self._download_json(
-            'https://api.hotstar.com/um/v3/users',
+            'https://api.hotstar.com/in/aadhar/v2/web/in/user/guest-signup',
             video_id, note='Downloading token',
-            data=json.dumps({"device_ids": [{"id": compat_str(uuid.uuid4()), "type": "device_id"}]}).encode('utf-8'),
+            data=json.dumps({"idType": "device", "id": compat_str(uuid.uuid4())}).encode('utf-8'),
             headers={
                 'hotstarauth': auth,
-                'x-hs-platform': 'PCTV',  # or 'web'
                 'Content-Type': 'application/json',
-            })['user_identity']
-
+            })['description']['userIdentity']
         response = self._download_json(
             'https://api.hotstar.com/' + path, video_id, headers={
                 'hotstarauth': auth,
@@ -63,7 +46,6 @@ class HotStarBaseIE(InfoExtractor):
                 'x-hs-platform': 'web',
                 'x-hs-usertoken': token,
             }, query=query)
-
         if response['message'] != "Playback URL's fetched successfully":
             raise ExtractorError(
                 response['message'], expected=True)
@@ -78,7 +60,7 @@ class HotStarBaseIE(InfoExtractor):
     def _call_api_v2(self, path, video_id):
         return self._call_api_impl(
             '%s/content/%s' % (path, video_id), video_id, {
-                'desired-config': 'audio_channel:stereo|dynamic_range:sdr|encryption:plain|ladder:tv|package:dash|resolution:hd|subs-tag:HotstarVIP|video_codec:vp9',
+                'desired-config': 'encryption:plain;ladder:phone,tv;package:hls,dash',
                 'device-id': compat_str(uuid.uuid4()),
                 'os-name': 'Windows',
                 'os-version': '10',
@@ -87,7 +69,7 @@ class HotStarBaseIE(InfoExtractor):
 
 class HotStarIE(HotStarBaseIE):
     IE_NAME = 'hotstar'
-    _VALID_URL = r'https?://(?:www\.)?hotstar\.com/.*(?P<id>\d{10})'
+    _VALID_URL = r'https?://(?:www\.)?hotstar\.com/(?:.+?[/-])?(?P<id>\d{10})'
     _TESTS = [{
         # contentData
         'url': 'https://www.hotstar.com/can-you-not-spread-rumours/1000076273',
@@ -147,7 +129,6 @@ class HotStarIE(HotStarBaseIE):
         headers = {'Referer': url}
         formats = []
         geo_restricted = False
-        # change to v2 in the future
         playback_sets = self._call_api_v2('play/v1/playback', video_id)['playBackSets']
         for playback_set in playback_sets:
             if not isinstance(playback_set, dict):
@@ -210,7 +191,7 @@ class HotStarIE(HotStarBaseIE):
 
 class HotStarPlaylistIE(HotStarBaseIE):
     IE_NAME = 'hotstar:playlist'
-    _VALID_URL = r'https?://(?:www\.)?hotstar\.com/(?:.+?[/-])?(?P<id>\d{10})'
+    _VALID_URL = r'https?://(?:www\.)?hotstar\.com/tv/[^/]+/s-\w+/list/[^/]+/t-(?P<id>\w+)'
     _TESTS = [{
         'url': 'https://www.hotstar.com/tv/savdhaan-india/s-26/list/popular-clips/t-3_2_26',
         'info_dict': {
